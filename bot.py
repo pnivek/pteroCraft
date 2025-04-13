@@ -4,6 +4,7 @@ import logging
 import signal
 import discord
 from discord.commands import Option
+from datetime import datetime, timezone
 
 import config
 from websocket_manager import WebsocketManager, strip_ansi
@@ -88,21 +89,22 @@ async def websocket_status_command(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     guild_ids=[config.GUILD_ID] if config.GUILD_ID else None,
-    name="list",
-    description="Lists the players currently online."
+    name="list", # Keep command name simple
+    description="Lists the players currently online on the server."
 )
 async def list_players_command(ctx: discord.ApplicationContext):
-    log.info(f"Command /list_players invoked by {ctx.author}")
-    await ctx.defer(ephemeral=True)
+    """Handles the /list command, parsing the response into an embed."""
+    log.info(f"Command /list invoked by {ctx.author}")
+    await ctx.defer(ephemeral=True) # Defer initially
+
     if not websocket_manager.is_authenticated:
-        await ctx.followup.send("❌ WS not authenticated.", ephemeral=True)
+        await ctx.followup.send("❌ Cannot process command: WebSocket not authenticated.", ephemeral=True)
         return
 
     command_key = "list"
     command_to_send = "list"
-    buffer_len_before_send = len(websocket_manager.log_buffer)
-    log.debug(f"Buffer length before sending '{command_to_send}': {buffer_len_before_send}")
 
+    # Use the reverse-scan method
     response_log = await websocket_manager.send_command_and_find_response(
         command_to_send=command_to_send,
         response_command_key=command_key
@@ -110,14 +112,66 @@ async def list_players_command(ctx: discord.ApplicationContext):
 
     if response_log:
         cleaned_response = strip_ansi(response_log)
-        if "players online:" in cleaned_response.lower():
-            display_response = cleaned_response[:1950] + "..." if len(cleaned_response) > 1950 else cleaned_response
-            await ctx.followup.send(f"👥 **Online Players:**\n```\n{display_response}\n```", ephemeral=False)
+        log.debug(f"Attempting to parse list response: '{cleaned_response}'")
+
+        # Use the refined regex from config to extract parts
+        match = config.COMMAND_REGEX_MATCHERS["list"].search(cleaned_response)
+
+        if match:
+            try:
+                current_players_str, max_players_str, player_list_str = match.groups()
+                current_players = int(current_players_str)
+                max_players = int(max_players_str)
+
+                # Parse player names (handle None or empty string)
+                player_names = []
+                if player_list_str:
+                    player_names = [name.strip() for name in player_list_str.split(',') if name.strip()]
+
+                log.info(f"Parsed list: {current_players}/{max_players} players. Names: {player_names}")
+
+                # --- Create Embed ---
+                embed = discord.Embed(
+                    title="Server Status",
+                    color=discord.Color.blue() # Or themed color
+                )
+                embed.add_field(
+                    name="Capacity⚡",
+                    value=f"• **{current_players} / {max_players}**",
+                    inline=False
+                )
+
+                # Add Player List field
+                if player_names:
+                    # Limit display length for embed field (1024 chars)
+                    player_text = "\n".join([f"• `{name}`" for name in player_names])
+                    if len(player_text) > 1020:
+                         player_text = player_text[:1017] + "\n..." # Truncate
+                    embed.add_field(name="Active Players👥", value=player_text, inline=False)
+                else:
+                    embed.add_field(name="Active Players👥", value="*No players currently online.*", inline=False)
+
+                embed.timestamp = datetime.now(timezone.utc)  # Use timezone-aware approach
+                embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+
+                # Send the embed publicly on success
+                await ctx.followup.send(embed=embed, ephemeral=False)
+
+            except ValueError:
+                log.error(f"Failed to parse player counts from regex match: {match.groups()}")
+                await ctx.followup.send("⚠️ Error parsing player count from server response.", ephemeral=True)
+            except Exception as e:
+                 log.exception(f"Error constructing list embed: {e}")
+                 await ctx.followup.send("⚠️ An internal error occurred creating the response.", ephemeral=True)
+
         else:
-            display_response = cleaned_response[:1900] + "..." if len(cleaned_response) > 1900 else cleaned_response
-            await ctx.followup.send(f"⚠️ Unexpected response format:\n```\n{display_response}\n```", ephemeral=True)
+            # The line found by send_command_and_find_response didn't match the *detailed* regex
+            log.warning(f"Found log line for 'list', but it didn't match the detailed parsing regex. Line: '{cleaned_response}'")
+            await ctx.followup.send(f"⚠️ Found a response line, but couldn't parse details. Raw:\n```\n{cleaned_response[:1900]}\n```", ephemeral=True)
     else:
-        await ctx.followup.send(f"🟡 Sent '{command_to_send}', no matching response found.", ephemeral=True)
+        # Timeout occurred
+        await ctx.followup.send(f"🟡 Command '{command_to_send}' sent, but no matching response found within timeout.", ephemeral=True)
+
 
 
 # --- Main Execution Logic ---
