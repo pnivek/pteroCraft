@@ -53,25 +53,49 @@ async def on_resumed():
 )
 async def print_log_command(
     ctx: discord.ApplicationContext,
-    lines: int = Option(int, "Number of recent lines", required=False, default=1, min_value=1, max_value=50)
+    lines: int = Option(int, "Number of recent lines", required=False, default=10, min_value=1, max_value=20)
 ):
-    log.info(f"/print_log by {ctx.author} (lines={lines})")
+    log.info(f"/log by {ctx.author} (lines={lines})")
+    await ctx.defer(ephemeral=True) # Defer ephemeral response
+
     if not websocket_manager.is_authenticated:
-        await ctx.respond("WS not ready.", ephemeral=True)
+        await ctx.followup.send("WS not ready.", ephemeral=True)
         return
 
     logs = websocket_manager.get_clean_recent_logs(num=lines)
-    if logs:
-        header = f"Last {len(logs)} log(s):"
-        body = "\n".join(logs)
-        max_len = 1980  # Discord message character limit is 2000, leave some buffer
-        if len(body) > max_len:
-            body = f"... (truncated)\n{body[-max_len:]}"
-        response = f"{header}\n```\n{body}\n```"
-    else:
-        response = "Log buffer empty."
 
-    await ctx.respond(response, ephemeral=True)
+    if not logs:
+        await ctx.followup.send("Log buffer empty.", ephemeral=True)
+        return
+
+    header = f"📋 Last {len(logs)} log line(s):"
+    body = "\n".join(logs)
+
+    # Define max length leaving room for header, code ticks, newline, and truncation message
+    MAX_CONTENT_LENGTH = 2000
+    CODE_BLOCK_MARKERS = "```\n```"
+    TRUNCATION_MSG = "\n... (truncated due to length)"
+    # Calculate max length for the actual log body content
+    max_body_len = MAX_CONTENT_LENGTH - len(header) - len(CODE_BLOCK_MARKERS) - len(TRUNCATION_MSG) - 2 # -2 for newlines
+
+    if len(body) > max_body_len:
+        log.warning(f"Log content length ({len(body)}) exceeds limit ({max_body_len}), truncating.")
+        # Truncate from the beginning to show the most recent lines
+        body = body[-max_body_len:]
+        # Prepend truncation message
+        response_text = f"{header}\n{CODE_BLOCK_MARKERS[:3]}{TRUNCATION_MSG}\n{body}{CODE_BLOCK_MARKERS[3:]}"
+    else:
+        # No truncation needed
+        response_text = f"{header}\n{CODE_BLOCK_MARKERS[:3]}\n{body}\n{CODE_BLOCK_MARKERS[3:]}"
+
+    # Final length check (safety)
+    if len(response_text) > MAX_CONTENT_LENGTH:
+         log.error(f"FATAL: Truncated log message still exceeds Discord limit ({len(response_text)} > {MAX_CONTENT_LENGTH}). This should not happen.")
+         # Send a generic error instead of risking another HTTP 400
+         await ctx.followup.send("❌ Error: Processed logs exceed display limit.", ephemeral=True)
+    else:
+         await ctx.followup.send(response_text, ephemeral=True)
+
 
 @bot.slash_command(
     guild_ids=[config.GUILD_ID] if config.GUILD_ID else None,
