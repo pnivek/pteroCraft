@@ -13,8 +13,7 @@ import websockets
 from config import (PTERODACTYL_URL, PTERODACTYL_API_KEY, PTERODACTYL_SERVER_ID,
                     WS_RECONNECT_MIN_DELAY, WS_RECONNECT_MAX_DELAY,
                     WS_RECONNECT_FACTOR, WS_PING_INTERVAL, WS_PING_TIMEOUT,
-                    LOG_BUFFER_SIZE,
-                    COMMAND_REGEX_MATCHERS, COMMAND_RESPONSE_TIMEOUT)
+                    LOG_BUFFER_SIZE, COMMAND_RESPONSES, COMMAND_RESPONSE_TIMEOUT)
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class WebsocketManager:
         self._reconnect_delay: float = WS_RECONNECT_MIN_DELAY
         self.log_buffer: Deque[str] = deque(maxlen=LOG_BUFFER_SIZE)
         self.is_authenticated: bool = False
-        self._command_patterns: Dict[str, List[Pattern[str]]] = COMMAND_REGEX_MATCHERS
+        self._command_responses: Dict[str, List[Tuple[Pattern[str], str]]] = COMMAND_RESPONSES
         self._command_response_timeout: float = COMMAND_RESPONSE_TIMEOUT
 
     # --- Core Logic Methods ---
@@ -247,137 +246,61 @@ class WebsocketManager:
             log.exception(f"Error sending '{cmd}': {e}")
             return False
         
-    async def send_command_and_find_response(self, command_to_send: str, response_command_key: str) -> Optional[Tuple[Pattern, str]]:
+    async def send_command_and_get_response(self, command_to_send: str, response_command_key: str) -> Optional[Tuple[str, str]]:
         """
-        Sends a command, then polls the buffer, scanning backwards FROM THE END
-        each time to find the latest log line matching response patterns.
+        Sends a command, then polls the buffer scanning backwards for the LATEST
+        log line matching any pattern associated with the response_command_key.
 
         Args:
             command_to_send: The command string to send.
-            response_command_key: The key in config.COMMAND_REGEX_MATCHERS.
+            response_command_key: The key in config.COMMAND_RESPONSES.
 
         Returns:
-            A tuple (matched_pattern, raw_log_line) if found within timeout, else None.
+            A tuple (response_type_constant, raw_log_line) if found, otherwise None.
         """
         if not self.is_authenticated:
             log.error(f"Cannot process '{command_to_send}': WS not authenticated.")
             return None
 
-        response_patterns = self._command_patterns.get(response_command_key)
-        if not response_patterns:
-            log.error(f"No patterns defined for key '{response_command_key}'")
+        # Get the list of (Pattern, ResponseType) tuples for this command key
+        response_options = self._command_responses.get(response_command_key)
+        if not response_options:
+            log.error(f"No response definitions found for key '{response_command_key}'")
             return None
 
         # --- Send Command ---
-        # Record length BEFORE sending to know roughly where new logs start
-        len_before_send = len(self.log_buffer)
         if not await self.send_command(command_to_send):
             return None # Error sending
 
-        # --- Wait for Response (Polling with Full Reverse Scan) ---
+        # --- Wait for Response (Polling with Reverse Scan) ---
         start_time = asyncio.get_running_loop().time()
-        log.debug(f"Waiting {self._command_response_timeout:.1f}s for LATEST RESPONSE pattern for '{response_command_key}' after sending '{command_to_send}'.")
+        log.debug(f"Waiting {self._command_response_timeout:.1f}s for LATEST RESPONSE for '{response_command_key}' after sending '{command_to_send}'.")
 
         while asyncio.get_running_loop().time() - start_time < self._command_response_timeout:
-            # Give websocket receiver a chance to run
-            await asyncio.sleep(0.1)
-
-            # --- Scan the buffer backwards in each poll iteration ---
+            await asyncio.sleep(0.1) # Short delay before scan
             try:
-                # Take snapshot for consistent scan
                 current_buffer_snapshot = list(self.log_buffer)
-                current_len = len(current_buffer_snapshot)
-                #log.debug(f"Reverse Scan Poll: Buffer len={current_len}")
+                # log.debug(f"Unified Rev Scan Poll: Buf len={len(current_buffer_snapshot)}")
 
-                # Scan backwards from the newest entry
-                # We only need to check logs that *could* have arrived after the command was sent.
-                # Start scan from end, stop if we go too far back (e.g., before len_before_send, though full scan is safer).
-                # Let's scan the whole buffer snapshot backwards for simplicity/robustness.
-                for i in range(current_len - 1, -1, -1):
+                # Scan backwards (newest to oldest)
+                for i in range(len(current_buffer_snapshot) - 1, -1, -1):
                     raw_line = current_buffer_snapshot[i]
                     cleaned_line = strip_ansi(raw_line).strip()
                     if not cleaned_line: continue
 
-                    #log.debug(f"  Reverse Scan Idx {i}: Clean='{cleaned_line[:80]}...'")
-                    # Check against *all* patterns for this command key
-                    for pattern in response_patterns:
+                    #log.debug(f"  Unified Rev Scan Idx {i}: Clean='{cleaned_line[:80]}...'")
+                    # Check against all patterns for the key, in order
+                    for pattern, response_type in response_options:
                         if pattern.search(cleaned_line):
-                            # Found the newest match in this snapshot
-                            log.info(f"Found LATEST response pattern '{pattern.pattern}' at index {i}.")
-                            # Since we scan backwards, the FIRST match found IS the latest.
-                            return pattern, raw_line
-            except Exception as e:
-                 log.exception(f"Error during reverse buffer scan poll: {e}")
-                 # Continue polling despite scan error
-
-            # Wait a bit longer before the next full reverse scan
-            await asyncio.sleep(0.3) # Adjust polling interval as needed
-
-        log.warning(f"Timeout ({self._command_response_timeout:.1f}s) finding response pattern for '{response_command_key}' command '{command_to_send}'.")
-        return None
-    
-    async def send_command_and_await_strings(self, command_to_send: str, expected_strings: List[str]) -> Optional[str]:
-        """
-        Sends a command, then polls scanning backwards for the LATEST log line
-        that ENDS WITH one of the expected strings (case-insensitive after cleaning).
-
-        Args:
-            command_to_send: The command string to send.
-            expected_strings: A list of exact strings to look for at the END of cleaned logs.
-
-        Returns:
-            The *cleaned* matching suffix string found, or None if timeout/error.
-        """
-        if not self.is_authenticated:
-            log.error(f"Cannot process '{command_to_send}': WS not authenticated.")
-            return None
-        if not expected_strings:
-            log.error("Cannot await strings: expected_strings list is empty.")
-            return None
-
-        # Pre-clean the expected strings for efficient comparison (lowercase for case-insensitivity)
-        cleaned_expected_suffixes = [strip_ansi(s).strip().lower() for s in expected_strings if s]
-        if not cleaned_expected_suffixes:
-            log.error("Cannot await strings: All expected strings empty after cleaning.")
-            return None
-
-        # --- Send Command ---
-        if not await self.send_command(command_to_send):
-            return None
-
-        # --- Wait for Response (Reverse Scan for String Suffix) ---
-        start_time = asyncio.get_running_loop().time()
-        log.debug(f"Waiting {self._command_response_timeout:.1f}s for LATEST log ending with one of {len(cleaned_expected_suffixes)} options after sending '{command_to_send}'.")
-
-        while asyncio.get_running_loop().time() - start_time < self._command_response_timeout:
-            await asyncio.sleep(0.1)
-            try:
-                current_buffer_snapshot = list(self.log_buffer)
-                # log.debug(f"String Suffix Rev Scan Poll: Buf len={len(current_buffer_snapshot)}")
-
-                for i in range(len(current_buffer_snapshot) - 1, -1, -1):
-                    raw_line = current_buffer_snapshot[i]
-                    # Clean the line from the buffer (lowercase for case-insensitivity)
-                    cleaned_line = strip_ansi(raw_line).strip().lower()
-                    if not cleaned_line: continue
-
-                    #log.debug(f"  Str Suf Rev Scan Idx {i}: Clean='{cleaned_line[:80]}...'")
-                    # Check if cleaned line *ends with* any expected cleaned suffix
-                    for expected_suffix in cleaned_expected_suffixes:
-                        if cleaned_line.endswith(expected_suffix):
-                            # Return the *original expected string* that matched the suffix
-                            # Find the original case-preserved string corresponding to the matched lowercased suffix
-                            original_match = next((s for s in expected_strings if strip_ansi(s).strip().lower() == expected_suffix), None)
-                            log.info(f"Found LATEST log ending with '{expected_suffix}' at index {i}. Original expected: '{original_match}'")
-                            # Return the *cleaned version* of the original match for consistency
-                            return strip_ansi(original_match).strip() if original_match else cleaned_line
+                            log.info(f"Found LATEST match for '{response_command_key}' (type: {response_type}) at index {i}.")
+                            return response_type, raw_line # Return type constant and raw line
 
             except Exception as e:
-                 log.exception(f"Error during string suffix reverse buffer scan poll: {e}")
+                 log.exception(f"Error during unified reverse buffer scan poll: {e}")
 
-            await asyncio.sleep(0.2) # Poll interval
+            await asyncio.sleep(0.25) # Polling interval
 
-        log.warning(f"Timeout ({self._command_response_timeout:.1f}s) finding any expected string suffix for command '{command_to_send}'.")
+        log.warning(f"Timeout ({self._command_response_timeout:.1f}s) finding response for '{response_command_key}' command '{command_to_send}'.")
         return None
 
     # --- Log Accessor Methods ---
