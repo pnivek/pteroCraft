@@ -1,4 +1,5 @@
 # main.py
+import re
 import asyncio
 import logging
 import signal
@@ -103,75 +104,115 @@ async def list_players_command(ctx: discord.ApplicationContext):
 
     command_key = "list"
     command_to_send = "list"
-
-    # Use the reverse-scan method
-    response_log = await websocket_manager.send_command_and_find_response(
+    
+    result_tuple = await websocket_manager.send_command_and_find_response(
         command_to_send=command_to_send,
         response_command_key=command_key
     )
 
-    if response_log:
+    if result_tuple:
+        matched_pattern, response_log = result_tuple # Unpack tuple
         cleaned_response = strip_ansi(response_log)
         log.debug(f"Attempting to parse list response: '{cleaned_response}'")
 
-        # Use the refined regex from config to extract parts
-        match = config.COMMAND_REGEX_MATCHERS["list"].search(cleaned_response)
-
+        # Use the *specific matched pattern* for parsing
+        match = matched_pattern.search(cleaned_response)
         if match:
             try:
                 current_players_str, max_players_str, player_list_str = match.groups()
-                current_players = int(current_players_str)
-                max_players = int(max_players_str)
-
-                # Parse player names (handle None or empty string)
-                player_names = []
-                if player_list_str:
-                    player_names = [name.strip() for name in player_list_str.split(',') if name.strip()]
-
+                current_players = int(current_players_str); max_players = int(max_players_str)
+                player_names = [name.strip() for name in player_list_str.split(',') if name.strip()] if player_list_str else []
                 log.info(f"Parsed list: {current_players}/{max_players} players. Names: {player_names}")
 
-                # --- Create Embed ---
-                embed = discord.Embed(
-                    title="Server Status",
-                    color=discord.Color.blue() # Or themed color
-                )
-                embed.add_field(
-                    name="Capacity⚡",
-                    value=f"• **{current_players} / {max_players}**",
-                    inline=False
-                )
-
-                # Add Player List field
+                embed = discord.Embed(title="Server Status", color=discord.Color.blue())
+                embed.add_field(name="Capacity⚡", value=f"• **{current_players} / {max_players}**", inline=False)
                 if player_names:
-                    # Limit display length for embed field (1024 chars)
                     player_text = "\n".join([f"• `{name}`" for name in player_names])
-                    if len(player_text) > 1020:
-                         player_text = player_text[:1017] + "\n..." # Truncate
+                    if len(player_text) > 1020: player_text = player_text[:1017] + "\n..."
                     embed.add_field(name="Active Players👥", value=player_text, inline=False)
                 else:
                     embed.add_field(name="Active Players👥", value="*No players currently online.*", inline=False)
-
-                embed.timestamp = datetime.now(timezone.utc)  # Use timezone-aware approach
+                embed.timestamp = datetime.now(timezone.utc)
                 embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+                await ctx.followup.send(embed=embed, ephemeral=False) # Public success
 
-                # Send the embed publicly on success
-                await ctx.followup.send(embed=embed, ephemeral=False)
-
-            except ValueError:
-                log.error(f"Failed to parse player counts from regex match: {match.groups()}")
-                await ctx.followup.send("⚠️ Error parsing player count from server response.", ephemeral=True)
             except Exception as e:
                  log.exception(f"Error constructing list embed: {e}")
-                 await ctx.followup.send("⚠️ An internal error occurred creating the response.", ephemeral=True)
-
+                 await ctx.followup.send("⚠️ Error parsing/displaying server response.", ephemeral=True)
         else:
-            # The line found by send_command_and_find_response didn't match the *detailed* regex
-            log.warning(f"Found log line for 'list', but it didn't match the detailed parsing regex. Line: '{cleaned_response}'")
-            await ctx.followup.send(f"⚠️ Found a response line, but couldn't parse details. Raw:\n```\n{cleaned_response[:1900]}\n```", ephemeral=True)
+             log.warning(f"Found log line for 'list', but pattern {matched_pattern.pattern} didn't match cleaned response: '{cleaned_response}'")
+             await ctx.followup.send(f"⚠️ Found response line, but couldn't parse details. Raw:\n```\n{cleaned_response[:1900]}\n```", ephemeral=True)
     else:
-        # Timeout occurred
-        await ctx.followup.send(f"🟡 Command '{command_to_send}' sent, but no matching response found within timeout.", ephemeral=True)
+        await ctx.followup.send(f"🟡 Sent '{command_to_send}', no matching response found.", ephemeral=True)
 
+@bot.slash_command(
+    guild_ids=[config.GUILD_ID] if config.GUILD_ID else None,
+    name="whitelist",
+    description="Adds or removes a player from the server whitelist."
+)
+async def whitelist_command(
+    ctx: discord.ApplicationContext,
+    action: str = Option(str, "Choose action", choices=["add", "remove"]),
+    username: str = Option(str, "Minecraft username (case-sensitive)")
+):
+    """Handles adding/removing players from the whitelist using exact string matching."""
+    log.info(f"/whitelist {action} {username} by {ctx.author}")
+    await ctx.defer(ephemeral=True) # Start private
+
+    if not websocket_manager.is_authenticated:
+        await ctx.followup.send("❌ Cannot process command: WebSocket not authenticated.", ephemeral=True)
+        return
+    if not re.match(r"^\w{3,16}$", username): # Basic Minecraft username check
+        await ctx.followup.send("❌ Invalid username format.", ephemeral=True)
+        return
+
+    command_to_send = f"whitelist {action} {username}"
+
+    # --- Construct the EXACT expected response strings ---
+    # NOTE: These MUST match the server output *exactly* after cleaning (strip_ansi)
+    expected_responses = []
+    add_success_str = f"Added {username} to the whitelist"
+    add_fail_str = "Player is already whitelisted"
+    remove_success_str = f"Removed {username} from the whitelist"
+    remove_fail_str = "Player is not whitelisted"
+    not_found_str = "That player does not exist"
+
+    if action == "add":
+        expected_responses.extend([add_success_str, add_fail_str, not_found_str])
+    elif action == "remove":
+        expected_responses.extend([remove_success_str, remove_fail_str, not_found_str])
+
+    # --- Call the new manager method ---
+    matched_string = await websocket_manager.send_command_and_await_strings(
+        command_to_send=command_to_send,
+        expected_strings=expected_responses
+    )
+
+    # --- Process the result ---
+    if matched_string:
+        log.info(f"Whitelist command response received: '{matched_string}'")
+        response_message = "🟡 Command sent, but result unclear." # Default
+
+        # Compare the *cleaned* matched string with our *cleaned* expected strings
+        if matched_string == strip_ansi(add_success_str).strip():
+             response_message = f"✅ Added `{username}` to the whitelist."
+        elif matched_string == strip_ansi(add_fail_str).strip():
+             response_message = f"ℹ️ Player `{username}` is already whitelisted."
+        elif matched_string == strip_ansi(remove_success_str).strip():
+             response_message = f"✅ Removed `{username}` from the whitelist."
+        elif matched_string == strip_ansi(remove_fail_str).strip():
+             response_message = f"ℹ️ Player `{username}` is not on the whitelist."
+        elif matched_string == strip_ansi(not_found_str).strip():
+             response_message = f"❌ Player `{username}` does not exist."
+        else:
+            log.error(f"Matched string '{matched_string}' doesn't match known expected strings for whitelist?")
+            response_message = f"⚠️ Unknown response received:\n```\n{matched_string[:1900]}\n```"
+
+        await ctx.followup.send(response_message, ephemeral=True)
+
+    else:
+        # Timeout finding any relevant response string
+        await ctx.followup.send(f"🟡 Command '{command_to_send}' sent, but no confirmation received.", ephemeral=True)
 
 
 # --- Main Execution Logic ---

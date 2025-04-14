@@ -3,6 +3,7 @@ import os
 import logging
 import re
 from dotenv import load_dotenv
+from typing import Dict, List, Pattern # For type hinting
 
 load_dotenv()
 
@@ -16,20 +17,30 @@ WS_PING_INTERVAL = 20; WS_PING_TIMEOUT = 10
 LOG_BUFFER_SIZE = 500
 
 # --- Command/Response Configuration ---
-COMMAND_RESPONSE_TIMEOUT = 5.0 # Keep previous adjustment
+COMMAND_RESPONSE_TIMEOUT = 5.0
 
-# Pre-compile regex for efficiency
-# ----- MODIFIED: Add capture groups to 'list' regex -----
-COMMAND_REGEX_MATCHERS = {
-    # Group 1: Current players (\d+)
-    # Group 2: Max players (\d+)
-    # Group 3: Optional player list string (.*) - may be None if no colon/players
-    "list": re.compile(r"There are (\d+) of a max of (\d+) players online:(?:\s*(.*))?$"),
-    # ----- END MODIFICATION -----
+# ----- MODIFIED: Store list of patterns per command key -----
+# Patterns match CLEANED log lines (ANSI codes, timestamps stripped)
+# Order matters: More specific patterns should come first if overlap exists.
+COMMAND_REGEX_MATCHERS: Dict[str, List[Pattern[str]]] = {
+    "list": [
+        re.compile(r"There are (\d+) of a max of (\d+) players online:(?:\s*(.*))?$")
+    ],
+    "whitelist": [
+        # Specific outcomes first
+        re.compile(r"Added (?P<username>\S+) to the whitelist"),       # 0: Add Success
+        re.compile(r"Player is already whitelisted"),                 # 1: Add Fail (Already Added)
+        re.compile(r"Removed (?P<username>\S+) from the whitelist"),   # 2: Remove Success
+        re.compile(r"Player is not whitelisted"),                     # 3: Remove Fail (Already Removed)
+        re.compile(r"That player does not exist"),                    # 4: Player Not Found
+    ],
+    # "seed": [re.compile(r"Seed: \[([-\d]+)\]")],
 }
+# ----- END MODIFICATION -----
+
 
 # --- Logging Configuration ---
-LOG_LEVEL = logging.INFO # Set back to INFO unless debugging
+LOG_LEVEL = logging.INFO # Keep INFO unless debugging
 LOG_FORMAT = '%(asctime)s:%(levelname)s:%(name)s:%(funcName)s: %(message)s'
 logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
 log = logging.getLogger(__name__)
