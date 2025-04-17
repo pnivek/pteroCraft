@@ -88,7 +88,7 @@ class WebsocketManager:
             log.info(f"Connecting WS:{url}")
             
             try:
-                async with websockets.connect(url, ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT) as ws:
+                async with websockets.connect(url, origin=self._panel_url, ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT) as ws:
                     self._websocket = ws
                     self._is_connected = True
                     log.info("WS connected.")
