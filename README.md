@@ -1,6 +1,23 @@
-# Pterodactyl Minecraft Server Discord Bot
+# pteroCraft
 
-A Discord bot that interacts with a Minecraft server console hosted on the Pterodactyl panel via its WebSocket API. It allows viewing logs, checking status, listing players, and managing the server's whitelist directly from Discord.
+This project is a Discord <-> Minecraft bridge. Specifically, its a Discord bot that interacts with a Pterodactyl panel Minecraft server's console via the panel's WebSocket API. It allows viewing logs, checking status, listing players, and managing the server's whitelist directly from Discord. 
+
+#### you might be wondering...
+Why not just use the minecraft server's RCON protocol?
+- RCON isn't secure and *no one* recommends exposing this to the internet.
+- I wanted a safe way to allow my friends (and their friends) to interact with the servers console.
+
+Ok, why don't you just make some trusted friends operators?
+- granting operator to users grants more permissions than whats often required
+- setting up custom operator levels/permissions on the MC server is cumbersome and more work
+- still places the burden of operator on a few people and makes the experience less "self service"
+
+There are mods like DiscordSRV, Fabricord, or Discord Integration Fabric already. why use this?
+- I didn't actually know about these when developing this bot, oops :P
+- It also seems like those mods require specific frameworks like Spigot, Fabric, etc., while this bot is agnostic to that. This only requires that your MC server be ran with pterodactyl, and that your MC server supports console commands via the panel.
+- there are projects on github similar to this one, but they seem more generalized
+
+Takeaway: using this bot allows me to *only expose the console commands that I choose* while having Discord handle the actual access control. This means that access to the bot/server commands can now be controlled via Discord's permission system, which offers more granularity and control than vanilla minecraft's operator system. Since this bot was built to be ran inside your pterodactyl panel next to your existing minecraft server, it will be simpler to set up than other solutions. And the python code is simple enough to easily extend/customize it to your needs.
 
 ## Features
 
@@ -18,22 +35,20 @@ A Discord bot that interacts with a Minecraft server console hosted on the Ptero
 -   A Discord Bot Token with Server Members Intent enabled.
 -   Pterodactyl panel account with API access.
 -   A Minecraft server hosted on the Pterodactyl panel.
--   Access to the server's WebSocket (usually enabled by default with appropriate API key permissions).
+-   Access to the MC server panel's WebSocket (usually enabled by default with appropriate API key permissions).
 
 ## Installation
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-directory>
+    git clone https://github.com/pnivek/pteroCraft
+    cd pteroCraft
     ```
 
 2.  **Set up a virtual environment (Recommended):**
     ```bash
     python -m venv venv
     # Activate the environment
-    # Windows (Git Bash/Linux):
-    source venv/Scripts/activate
     # Windows (CMD/PowerShell):
     .\venv\Scripts\activate
     # Linux/macOS:
@@ -87,13 +102,13 @@ There are two primary ways to run the bot:
     chmod +x startbot.sh # Make executable (first time only)
     ./startbot.sh
     ```
-    *(Note: `startbot.sh` might need adjustments for Windows environments.)*
+    *(Note: `startbot.sh` will need adjustments for Windows environments.)*
 
 ## Commands
 
 The bot uses slash commands within your specified Discord server (`DISCORD_GUILD_ID`):
 
--   `/log [lines]` - Shows the last *N* lines from the server console log (default: 10, max: 20).
+-   `/log [N]` - Shows the last *N* lines from the server console log (default: 10, max: 20).
 -   `/status` - Displays the current connection status to the Pterodactyl WebSocket.
 -   `/list` - Lists the players currently online on the Minecraft server.
 -   `/whitelist <add|remove> <username>` - Adds or removes the specified Minecraft username from the server whitelist.
