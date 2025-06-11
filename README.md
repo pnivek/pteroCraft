@@ -1,33 +1,30 @@
 # pteroCraft
 
-This project is a Discord <-> Minecraft bridge. Specifically, its a Discord bot that interacts with a Pterodactyl panel Minecraft server's console via the panel's WebSocket API. It allows viewing logs, checking status, listing players, and managing the server's whitelist directly from Discord. 
+A Discord bot that bridges your Discord server with a Minecraft server hosted on Pterodactyl. Instead of relying on insecure RCON or complex server mods, pteroCraft connects directly to your Pterodactyl panel's WebSocket API to provide safe, granular control over server management.
 
-#### you might be wondering...
-Why not just use the minecraft server's RCON protocol?
-- RCON isn't secure and *no one* recommends exposing this to the internet.
-- I wanted a safe way to allow my friends (and their friends) to interact with the servers console.
+## Why pteroCraft?
 
-Ok, why don't you just make some trusted friends operators?
-- granting operator to users grants more permissions than whats often required
-- setting up custom operator levels/permissions on the MC server is cumbersome and more work
-- still places the burden of operator on a few people and makes the experience less "self service"
+**🔒 Security First**
+- **Why not RCON?** RCON is inherently insecure and should never be exposed to the internet. pteroCraft uses Pterodactyl's secure WebSocket API instead.
+- **Why not make friends operators?** Minecraft's operator system is all-or-nothing. pteroCraft lets you expose only the specific commands you choose.
 
-There are mods like DiscordSRV, Fabricord, or Discord Integration Fabric already. why use this?
-- I didn't actually know about these when developing this bot, oops :P
-- It also seems like those mods require specific frameworks like Spigot, Fabric, etc., while this bot is agnostic to that. This only requires that your MC server be ran with pterodactyl, and that your MC server supports console commands via the panel.
-- there are projects on github similar to this one, but they seem more generalized
+**🎯 Better Control**
+- **Discord-based permissions:** Leverage Discord's robust permission system instead of managing complex Minecraft operator levels.
+- **Self-service:** Friends can manage whitelist and check server status without bothering admins.
+- **Audit trail:** All commands are logged and attributable to Discord users.
 
-Takeaway: using this bot allows me to *only expose the console commands that I choose* while having Discord handle the actual access control. This means that access to the bot/server commands can now be controlled via Discord's permission system, which offers more granularity and control than vanilla minecraft's operator system. Since this bot was built to be ran inside your pterodactyl panel next to your existing minecraft server, it will be simpler to set up than other solutions. And the python code is simple enough to easily extend/customize it to your needs.
+**⚡ Simple Setup**
+- **Server-agnostic:** Works with any Minecraft server (Vanilla, Fabric, Forge, etc.) as long as it runs on Pterodactyl.
+- **No mods required:** Unlike DiscordSRV, Fabricord, or Discord Integration Fabric, pteroCraft doesn't require specific server frameworks.
+- **Lightweight:** Just a Python bot that can run alongside your existing server infrastructure.
 
-## Features
+## Core Features
 
--   **View Server Logs:** Display recent lines from the server console (`/log`).
--   **Check Connection Status:** Show the status of the WebSocket connection to the Pterodactyl server (`/status`).
--   **List Online Players:** Display the current online player count and list their usernames (`/list`).
--   **Manage Whitelist:** Add or remove players from the Minecraft server whitelist (`/whitelist`).
--   **WebSocket Integration:** Connects directly to the Pterodactyl server's console WebSocket for real-time interaction.
--   **Configuration:** Easily configured using environment variables (`.env` file).
--   **Slash Commands:** User-friendly interaction through Discord slash commands.
+-   **📋 View Server Logs:** Display recent console output (`/log`)
+-   **🔍 Connection Status:** Monitor WebSocket connection health (`/status`)  
+-   **👥 Player Management:** List online players (`/list`)
+-   **✅ Whitelist Control:** Add/remove players from whitelist (`/whitelist`)
+-   **🔐 Permission-based:** Control access through Discord roles and permissions
 
 ## Requirements
 
