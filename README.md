@@ -20,53 +20,74 @@ A Discord bot that bridges your Discord server with a Minecraft server hosted on
 
 ## Core Features
 
--   **📋 View Server Logs:** Display recent console output (`/log`)
--   **🔍 Connection Status:** Monitor WebSocket connection health (`/status`)  
--   **👥 Player Management:** List online players (`/list`)
--   **✅ Whitelist Control:** Add/remove players from whitelist (`/whitelist`)
--   **🔐 Permission-based:** Control access through Discord roles and permissions
+- **💻 Console:** exposes minecraft console commands via slash commands in your discord bot
+- **📝 Logs:** print the raw console output for debugging
+- **🔐 Permission-based:** Control access through Discord roles and permissions
 
 ## Requirements
 
--   Python 3.8+
--   A Discord Bot Token with Server Members Intent enabled.
--   Pterodactyl panel account with API access.
--   A Minecraft server hosted on the Pterodactyl panel.
--   Access to the MC server panel's WebSocket (usually enabled by default with appropriate API key permissions).
+-   **Pterodactyl Panel:** Account with API access and a Minecraft server
+-   **Discord Bot:** Application Token with Server Members Intent enabled
+-   **Python 3.8+** (if running manually)
 
-## Installation
+## Quick Start
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/pnivek/pteroCraft
-    cd pteroCraft
-    ```
+### 🚀 Deploy on Pterodactyl Panel (Recommended)
 
-2.  **Set up a virtual environment (Recommended):**
-    ```bash
-    python -m venv venv
-    # Activate the environment
-    # Windows (CMD/PowerShell):
-    .\venv\Scripts\activate
-    # Linux/macOS:
-    source venv/bin/activate
-    ```
+The best way to run pteroCraft is directly on your Pterodactyl panel alongside your Minecraft server:
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+1. **Create a new server in your Pterodactyl panel:** Admin > Servers > Create New
+2. **Fill out basic fields:** Core Details, Allocation, Limits and Resources. Uncheck the "Start Server when Installed" option.
+3. **Nest Configuration:** Select the Generic Nest, python generic Egg and Python 3.12 Docker Image
+4. **Git Repo Address:** `https://github.com/pnivek/pteroCraft`
+5. **App py file:** `bot.py`
+6. **Create the server** - pteroCraft bot will auto-install itself along with dependencies
+7. **Configure environment variables:** Goto the new server's Files section and create a new plain text file called ".env" and copy & paste the example configuration in the section below. Replace the example values with your own.
+8. **Go back to the console tab and start the server!**
 
-4.  **Create `.env` file:**
-    Copy the example file:
-    ```bash
-    cp .env.example .env
-    ```
-    Then, edit `.env` with your specific credentials.
+### 🛠️ Local Installation (Alternative)
 
-## Configuration (`.env` File)
+If you prefer to run pteroCraft on your own machine:
 
-Fill in the `.env` file with the following details:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/pnivek/pteroCraft
+   cd pteroCraft
+   ```
+
+2. **Set up virtual environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/macOS
+   # or
+   .\venv\Scripts\activate   # Windows
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure environment variables:**
+   ```bash
+   # Linux/macOS
+   export DISCORD_TOKEN=abc123
+
+   # Windows (Command Prompt)
+   set DISCORD_TOKEN=abc123
+
+   # Windows (PowerShell)
+   $env:DISCORD_TOKEN="abc123"
+   ```
+
+5. **Run the bot:**
+   ```bash
+   python bot.py
+   ```
+
+## Configuration (`.env`)
+
+Create a `.env` file in the same folder as the bot.py using the following variables:
 
 ```dotenv
 # Discord Bot Configuration
@@ -74,7 +95,7 @@ DISCORD_TOKEN=your_discord_bot_token     # Your Discord bot's secret token
 DISCORD_GUILD_ID=your_discord_server_id  # ID of the Discord server where commands are registered
 
 # Pterodactyl Panel Configuration
-PTERODACTYL_URL=https://your.pterodactyl.panel # Base URL of your Pterodactyl panel (e.g., https://panel.example.com)
+PTERODACTYL_URL=https://pterodactyl.panel   # Base URL of your Pterodactyl panel
 PTERODACTYL_API_KEY=your_client_api_key     # Pterodactyl *Client* API Key (Account API, NOT Application API)
 PTERODACTYL_SERVER_ID=your_server_short_id  # The short ID of your Minecraft server (e.g., a1b2c3d4)
 ```
@@ -83,25 +104,7 @@ PTERODACTYL_SERVER_ID=your_server_short_id  # The short ID of your Minecraft ser
 *   The `PTERODACTYL_API_KEY` must be a **Client API Key** generated from your Pterodactyl account settings, **not** an Application API key. It needs permissions to access the server console/WebSocket.
 *   The `PTERODACTYL_SERVER_ID` is the short identifier found in the server's URL (e.g., `https://your.pterodactyl.panel/server/a1b2c3d4`, the ID is `a1b2c3d4`).
 
-## Usage
-
-There are two primary ways to run the bot:
-
-1.  **Directly with Python:**
-    Make sure your virtual environment is activated.
-    ```bash
-    python bot.py
-    ```
-
-2.  **Using the start script (Recommended for Linux/macOS):**
-    This script handles environment activation, requirement installation, and automatic restarts.
-    ```bash
-    chmod +x startbot.sh # Make executable (first time only)
-    ./startbot.sh
-    ```
-    *(Note: `startbot.sh` will need adjustments for Windows environments.)*
-
-## Commands
+## Supported Commands
 
 The bot uses slash commands within your specified Discord server (`DISCORD_GUILD_ID`):
 
