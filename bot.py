@@ -285,6 +285,7 @@ async def main():
     
     log.info("Launching bot...")
     discord_task = loop.create_task(run_discord_bot(), name="DiscordBotTask")
+    log.info("finished initializing...") # log string to mark server as started
     log.info("Waiting for shutdown signal...")
     await shutdown_event.wait()
     log.info("Shutdown event received.")
